@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import authService from '../services/authService';
 import userService from '../services/userService';
+import supabase from '../config/supabase';
 
 const AuthContext = createContext({});
 
@@ -24,6 +25,60 @@ export const AuthProvider = ({ children }) => {
     // Initialize auth state
     useEffect(() => {
         initializeAuth();
+
+        // Listen for deep links (OAuth callback)
+        const handleDeepLink = async ({ url }) => {
+            console.log('Deep link received:', url);
+            if (!url) return;
+
+            try {
+                // Parse the URL for tokens (Supabase returns them in hash or query)
+                // Format: cricketscorer://auth/callback#access_token=...&refresh_token=...
+                // OR: cricketscorer://auth/callback?code=...
+
+                // Extract parameters
+                const params = {};
+                const queryString = url.split('#')[1] || url.split('?')[1];
+
+                if (queryString) {
+                    queryString.split('&').forEach(param => {
+                        const [key, value] = param.split('=');
+                        if (key && value) {
+                            params[key] = decodeURIComponent(value);
+                        }
+                    });
+                }
+
+                if (params.access_token && params.refresh_token) {
+                    console.log('Detected session in URL, setting session...');
+                    const { error } = await supabase.auth.setSession({
+                        access_token: params.access_token,
+                        refresh_token: params.refresh_token,
+                    });
+                    if (error) throw error;
+                    console.log('Session set successfully from deep link');
+                } else if (params.code) {
+                    console.log('Detected auth code in URL, exchanging for session...');
+                    const { error } = await supabase.auth.exchangeCodeForSession(params.code);
+                    if (error) throw error;
+                    console.log('Session exchanged successfully');
+                }
+            } catch (error) {
+                console.error('Error processing deep link:', error);
+            }
+        };
+
+        const { Linking } = require('react-native');
+        const subscription = Linking.addEventListener('url', handleDeepLink);
+
+        // Check for initial URL (if app opened from link)
+        Linking.getInitialURL().then(url => {
+            if (url) handleDeepLink({ url });
+        });
+
+        return () => {
+            subscription.remove();
+        };
     }, []);
 
     // Subscribe to auth changes

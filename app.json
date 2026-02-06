@@ -33,8 +33,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "be37a125-e098-4e82-869d-db136559732f"
       }
-    }
+    },
+    "owner": "saikranth1219"
   }
 }

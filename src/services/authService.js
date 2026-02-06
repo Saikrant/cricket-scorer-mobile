@@ -52,6 +52,7 @@ export const authService = {
                 options: {
                     // Use the Supabase redirect endpoint - it will handle the callback
                     skipBrowserRedirect: true,
+                    redirectTo: 'cricketscorer://auth/callback',
                 },
             });
 
