@@ -357,6 +357,19 @@ const matchService = {
                 if (p.status === 'out') dismissalCount++;
             });
 
+            // Fetch bowling stats to get wickets
+            const { data: bowlingStats, error: bowlingError } = await supabase
+                .from('match_bowlers')
+                .select('wickets')
+                .eq('player_id', playerId);
+
+            let totalWickets = 0;
+            if (!bowlingError && bowlingStats) {
+                bowlingStats.forEach(b => {
+                    totalWickets += (b.wickets || 0);
+                });
+            }
+
             const average = dismissalCount > 0 ? (totalRuns / dismissalCount).toFixed(1) : totalRuns; // If never out, average is total runs
             const strikeRate = totalBalls > 0 ? ((totalRuns / totalBalls) * 100).toFixed(1) : '0.0';
 
@@ -369,7 +382,8 @@ const matchService = {
                     sixes: totalSixes,
                     highest: highestScore,
                     average: average,
-                    strikeRate: strikeRate
+                    strikeRate: strikeRate,
+                    wickets: totalWickets
                 },
                 error: null
             };

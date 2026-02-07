@@ -107,7 +107,8 @@ const ScorerDashboardScreen = ({ navigation }) => {
                                     match.status === 'live' ? styles.textLive :
                                         match.status === 'completed' ? styles.textCompleted : styles.textSetup
                                     ]}>
-                                        {match.status.toUpperCase()}
+                                        {match.status === 'setup' ? 'Upcoming' :
+                                            match.status === 'live' ? 'Live' : 'Completed'}
                                     </Text>
                                 </View>
                             </TouchableOpacity>

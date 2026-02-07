@@ -19,27 +19,42 @@ const PlayerLiveMatchScreen = ({ route, navigation }) => {
     const fetchLiveScore = async () => {
         if (!matchId) return;
 
-        // Fetch match players to find current strikers and their scores
-        // In a real app we'd have a 'balls' table or 'match_state' table. 
-        // Here we infer state from 'match_players' (who is batting) and aggregated runs.
-
         try {
             const { players } = await matchService.getMatchPlayers(matchId);
+            const { bowlers } = await matchService.getMatchBowlers(matchId);
             const { match } = await matchService.getMatch(matchId);
 
             if (players && match) {
                 // Determine current batsman
                 const striker = players.find(p => p.status === 'batting');
-                const nonStriker = players.find(p => p.status === 'batting' && p.player_id !== striker?.player_id); // In individual mode usually just 1
 
-                // Calculate match total score (sum of all runs)
+                // Calculate match stats
                 const totalRuns = players.reduce((sum, p) => sum + (p.runs || 0), 0);
+                const wickets = players.filter(p => p.status === 'out').length;
+
+                // Calculate overs from bowling stats
+                let totalLegalBalls = 0;
+                if (bowlers) {
+                    bowlers.forEach(b => {
+                        // total balls bowled = (overs * 6) + (balls % 6) ideally, 
+                        // but let's assume 'overs' is stored as e.g. 1.2 (1 over 2 balls)
+                        // This might be tricky if stored as float.
+                        // Let's assume the scorer updates 'overs' as a string or float like 10.3
+                        const ov = b.overs || 0;
+                        const wholeOvers = Math.floor(ov);
+                        const extraBalls = Math.round((ov - wholeOvers) * 10);
+                        totalLegalBalls += (wholeOvers * 6) + extraBalls;
+                    });
+                }
+
+                const currentOvers = `${Math.floor(totalLegalBalls / 6)}.${totalLegalBalls % 6}`;
 
                 setMatchData({
                     striker,
                     totalRuns,
+                    wickets,
+                    currentOvers,
                     matchName: match.match_name,
-                    overs: 0, // Simplified, hard to calculate total overs without ball-by-ball table in this view
                 });
                 setLastUpdated(new Date());
             }
@@ -70,8 +85,12 @@ const PlayerLiveMatchScreen = ({ route, navigation }) => {
                     <Text style={styles.matchName}>{matchData.matchName}</Text>
 
                     <View style={styles.scoreRow}>
-                        <Text style={styles.bigScore}>{matchData.totalRuns}</Text>
-                        <Text style={styles.runsLabel}>RUNS</Text>
+                        <Text style={styles.bigScore}>
+                            {matchData.totalRuns}/{matchData.wickets}
+                        </Text>
+                        <Text style={styles.oversLabel}>
+                            ({matchData.currentOvers} Overs)
+                        </Text>
                     </View>
 
                     <View style={styles.divider} />
@@ -149,6 +168,12 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: '#0F172A',
         lineHeight: 64,
+    },
+    oversLabel: {
+        fontSize: 20,
+        fontWeight: '600',
+        color: '#64748B',
+        marginTop: 4,
     },
     runsLabel: {
         fontSize: 14,

@@ -184,12 +184,15 @@ const PlayerDashboardScreen = ({ navigation }) => {
                             <View style={styles.matchHeader}>
                                 <Text style={styles.matchTournament}>{match.match_name}</Text>
                                 <View style={[styles.statusBadge,
-                                match.status === 'live' ? styles.statusLive : styles.statusFinished
+                                match.status === 'live' ? styles.statusLive :
+                                    match.status === 'completed' ? styles.statusCompleted : styles.statusSetup
                                 ]}>
                                     <Text style={[styles.statusText,
-                                    match.status === 'live' ? styles.statusTextLive : styles.statusTextFinished
+                                    match.status === 'live' ? styles.statusTextLive :
+                                        match.status === 'completed' ? styles.statusTextFinished : styles.statusTextSetup
                                     ]}>
-                                        {match.status.toUpperCase()}
+                                        {match.status === 'setup' ? 'Upcoming' :
+                                            match.status === 'live' ? 'Live' : 'Completed'}
                                     </Text>
                                 </View>
                             </View>
@@ -377,21 +380,30 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 4,
     },
+    statusSetup: {
+        backgroundColor: '#F3F4F6',
+    },
     statusLive: {
         backgroundColor: '#E3F2FD',
     },
     statusFinished: {
-        backgroundColor: '#F5F5F5',
+        backgroundColor: '#F0FDF4', // Greenish for completed
+    },
+    statusCompleted: {
+        backgroundColor: '#F0FDF4',
     },
     statusText: {
         fontSize: 10,
         fontWeight: '700',
     },
+    statusTextSetup: {
+        color: '#4B5563',
+    },
     statusTextLive: {
         color: theme.colors.primary,
     },
     statusTextFinished: {
-        color: theme.colors.textSecondary,
+        color: '#15803D',
     },
     matchDetails: {
         fontSize: 14,

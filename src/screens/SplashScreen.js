@@ -8,7 +8,7 @@ const SplashScreen = ({ navigation }) => {
         // Auto-navigate to Login after 2 seconds
         const timer = setTimeout(() => {
             navigation.replace('Login');
-        }, 2000);
+        }, 5000);
 
         return () => clearTimeout(timer);
     }, [navigation]);
