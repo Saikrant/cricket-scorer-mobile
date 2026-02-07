@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -8,21 +8,49 @@ import {
     KeyboardAvoidingView,
     Platform,
     Alert,
+    Modal,
+    FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Input from '../components/Input';
 import Button from '../components/Button';
 import theme from '../theme';
+import { useAuth } from '../contexts/AuthContext';
+import matchService from '../services/matchService';
 
 const CreateMatchScreen = ({ navigation }) => {
-    const [matchType, setMatchType] = useState('individual'); // 'team' or 'individual'
+    const { profile } = useAuth();
+    const [matchType, setMatchType] = useState('individual');
     const [matchName, setMatchName] = useState('');
     const [location, setLocation] = useState('');
     const [date, setDate] = useState(new Date());
     const [time, setTime] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
+
+    // Template state
+    const [templates, setTemplates] = useState([]);
+    const [showTemplatesModal, setShowTemplatesModal] = useState(false);
+    const [selectedTemplate, setSelectedTemplate] = useState(null);
+
+    useEffect(() => {
+        fetchTemplates();
+    }, []);
+
+    const fetchTemplates = async () => {
+        if (profile?.id) {
+            const { templates: loadedTemplates } = await matchService.getMatchTemplates(profile.id);
+            setTemplates(loadedTemplates || []);
+        }
+    };
+
+    const handleSelectTemplate = (template) => {
+        setSelectedTemplate(template);
+        setMatchName(template.match_name || template.template_name || '');
+        setLocation(template.location || '');
+        setShowTemplatesModal(false);
+    };
 
     const formatDate = (date) => {
         const today = new Date();
@@ -74,6 +102,8 @@ const CreateMatchScreen = ({ navigation }) => {
                 match_time: time.toTimeString().split(' ')[0].substring(0, 5),
                 match_type: matchType,
             },
+            // Pass template data if selected
+            selectedTemplate: selectedTemplate,
         });
     };
 
@@ -116,6 +146,60 @@ const CreateMatchScreen = ({ navigation }) => {
                         </Text>
                     </TouchableOpacity>
                 </View>
+
+                {/* Load Previous Template Button */}
+                {templates.length > 0 && (
+                    <TouchableOpacity
+                        style={styles.loadTemplateButton}
+                        onPress={() => setShowTemplatesModal(true)}
+                    >
+                        <Ionicons name="folder-open-outline" size={20} color={theme.colors.primary} />
+                        <Text style={styles.loadTemplateText}>
+                            {selectedTemplate ? `Loaded: ${selectedTemplate.template_name}` : 'Load Previous Match'}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={16} color={theme.colors.textTertiary} />
+                    </TouchableOpacity>
+                )}
+
+                {/* Templates Modal */}
+                <Modal
+                    visible={showTemplatesModal}
+                    transparent={true}
+                    animationType="slide"
+                    onRequestClose={() => setShowTemplatesModal(false)}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>Load Previous Match</Text>
+                                <TouchableOpacity onPress={() => setShowTemplatesModal(false)}>
+                                    <Ionicons name="close" size={24} color={theme.colors.dark} />
+                                </TouchableOpacity>
+                            </View>
+                            <FlatList
+                                data={templates}
+                                keyExtractor={(item) => item.id}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={styles.templateItem}
+                                        onPress={() => handleSelectTemplate(item)}
+                                    >
+                                        <View style={styles.templateInfo}>
+                                            <Text style={styles.templateName}>{item.template_name}</Text>
+                                            <Text style={styles.templateMeta}>
+                                                {item.overs_per_player} overs/player • {item.player_names?.length || 0} players
+                                            </Text>
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
+                                    </TouchableOpacity>
+                                )}
+                                ListEmptyComponent={
+                                    <Text style={styles.emptyText}>No saved templates</Text>
+                                }
+                            />
+                        </View>
+                    </View>
+                </Modal>
 
                 {/* Match Name */}
                 <View style={styles.inputSection}>
@@ -339,6 +423,83 @@ const styles = StyleSheet.create({
 
     continueButton: {
         backgroundColor: '#1E3A5F',
+    },
+
+    // Template styles
+    loadTemplateButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#EBF5FF',
+        padding: 14,
+        borderRadius: 12,
+        marginBottom: 20,
+        gap: 10,
+    },
+
+    loadTemplateText: {
+        flex: 1,
+        fontSize: 14,
+        color: theme.colors.primary,
+        fontWeight: '500',
+    },
+
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+
+    modalContent: {
+        backgroundColor: theme.colors.white,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        maxHeight: '70%',
+        paddingBottom: 40,
+    },
+
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E0E0E0',
+    },
+
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: theme.colors.dark,
+    },
+
+    templateItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
+    },
+
+    templateInfo: {
+        flex: 1,
+    },
+
+    templateName: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: theme.colors.dark,
+    },
+
+    templateMeta: {
+        fontSize: 13,
+        color: theme.colors.textTertiary,
+        marginTop: 2,
+    },
+
+    emptyText: {
+        textAlign: 'center',
+        color: theme.colors.textTertiary,
+        padding: 20,
     },
 });
 

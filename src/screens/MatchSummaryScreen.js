@@ -16,6 +16,7 @@ import matchService from '../services/matchService';
 const MatchSummaryScreen = ({ navigation, route }) => {
     const { matchId } = route.params || {};
     const [standings, setStandings] = useState([]);
+    const [bowlerStandings, setBowlerStandings] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -50,6 +51,31 @@ const MatchSummaryScreen = ({ navigation, route }) => {
             }));
 
             setStandings(standingsData);
+
+            // Fetch bowling stats
+            const { bowlers, error: bowlersError } = await matchService.getMatchBowlers(matchId);
+            if (!bowlersError && bowlers && bowlers.length > 0) {
+                // Sort by wickets desc, then economy asc
+                const sortedBowlers = [...bowlers].sort((a, b) => {
+                    if ((b.wickets || 0) !== (a.wickets || 0)) return (b.wickets || 0) - (a.wickets || 0);
+                    const econA = (a.overs || 0) > 0 ? (a.runs_conceded || 0) / (a.overs || 1) : 0;
+                    const econB = (b.overs || 0) > 0 ? (b.runs_conceded || 0) / (b.overs || 1) : 0;
+                    return econA - econB;
+                });
+
+                const bowlerData = sortedBowlers.map((b, index) => ({
+                    id: b.player_id,
+                    rank: index + 1,
+                    name: b.player_name || 'Unknown',
+                    overs: b.overs || 0,
+                    runs: b.runs_conceded || 0,
+                    wickets: b.wickets || 0,
+                    economy: (b.overs || 0) > 0 ? ((b.runs_conceded || 0) / (b.overs || 1)).toFixed(2) : '0.00',
+                    label: index === 0 ? 'Best Bowler' : `${b.wickets || 0} wickets`
+                }));
+
+                setBowlerStandings(bowlerData);
+            }
         } catch (error) {
             console.error(error);
         } finally {
@@ -136,7 +162,7 @@ const MatchSummaryScreen = ({ navigation, route }) => {
                 {/* Final Standings List */}
                 <View style={styles.standingsSection}>
                     <View style={styles.sectionHeaderRow}>
-                        <Text style={styles.sectionTitle}>Final Standings</Text>
+                        <Text style={styles.sectionTitle}>Batting Leaderboard</Text>
                         <Text style={styles.viewAllText}>View Full Stats</Text>
                     </View>
 
@@ -156,6 +182,32 @@ const MatchSummaryScreen = ({ navigation, route }) => {
                             </View>
                         </View>
                     ))}
+
+                    {/* Bowling Leaderboard */}
+                    {bowlerStandings.length > 0 && (
+                        <>
+                            <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
+                                <Text style={styles.sectionTitle}>Bowling Leaderboard</Text>
+                            </View>
+
+                            {bowlerStandings.map((item) => (
+                                <View key={`bowl-${item.id}`} style={styles.standingRow}>
+                                    <Text style={styles.rankNumber}>{item.rank}</Text>
+                                    <View style={[styles.rowAvatar, { backgroundColor: '#E8F5E9' }]}>
+                                        <Text style={[styles.rowAvatarText, { color: '#2E7D32' }]}>{item.name.charAt(0)}</Text>
+                                    </View>
+                                    <View style={styles.rowInfo}>
+                                        <Text style={styles.rowName}>{item.name}</Text>
+                                        <Text style={styles.rowLabel}>{item.label}</Text>
+                                    </View>
+                                    <View style={styles.rowStats}>
+                                        <Text style={styles.rowScore}>{item.wickets}/{item.runs}</Text>
+                                        <Text style={styles.rowBalls}>{item.overs} ov • {item.economy} econ</Text>
+                                    </View>
+                                </View>
+                            ))}
+                        </>
+                    )}
                 </View>
 
                 {/* Actions */}

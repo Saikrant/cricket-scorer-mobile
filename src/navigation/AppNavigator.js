@@ -81,6 +81,7 @@ const AppNavigator = () => {
                         {/* Dashboards via Tab Navigators */}
                         <Stack.Screen name="PlayerDashboard" component={PlayerTabNavigator} />
                         <Stack.Screen name="ScorerDashboard" component={ScorerTabNavigator} />
+                        <Stack.Screen name="GuestDashboard" component={GuestDashboardScreen} />
 
                         {/* Common/Shared Screens */}
                         <Stack.Screen name="PlayerLiveMatch" component={PlayerLiveMatchScreen} />

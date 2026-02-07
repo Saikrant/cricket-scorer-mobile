@@ -18,15 +18,17 @@ import theme from '../theme';
 import matchService from '../services/matchService';
 
 const MatchSetupScreen = ({ navigation, route }) => {
-    const { matchDetails } = route.params;
-    const { user } = useAuth();
+    const { matchDetails, selectedTemplate } = route.params;
+    const { user, profile } = useAuth();
 
-    const [oversPerPlayer, setOversPerPlayer] = useState(2);
+    const [oversPerPlayer, setOversPerPlayer] = useState(selectedTemplate?.overs_per_player || 2);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedPlayers, setSelectedPlayers] = useState([]);
     const [availablePlayers, setAvailablePlayers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [creating, setCreating] = useState(false);
+    const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+    const [templateName, setTemplateName] = useState('');
 
     const totalOvers = oversPerPlayer * selectedPlayers.length;
 
@@ -43,7 +45,22 @@ const MatchSetupScreen = ({ navigation, route }) => {
                 .order('full_name', { ascending: true });
 
             if (error) throw error;
-            setAvailablePlayers(data || []);
+            const playersData = data || [];
+            setAvailablePlayers(playersData);
+
+            // Pre-select players from template if available
+            if (selectedTemplate?.player_ids && selectedTemplate.player_ids.length > 0) {
+                const templatePlayers = selectedTemplate.player_ids
+                    .map((id, index) => {
+                        const player = playersData.find(p => p.id === id);
+                        if (player) {
+                            return { ...player, battingOrder: index + 1 };
+                        }
+                        return null;
+                    })
+                    .filter(Boolean);
+                setSelectedPlayers(templatePlayers);
+            }
         } catch (error) {
             console.error('Error fetching players:', error);
             Alert.alert('Error', 'Failed to load players');
@@ -114,6 +131,17 @@ const MatchSetupScreen = ({ navigation, route }) => {
                 throw new Error(playersError);
             }
 
+            // Save as template if toggled
+            if (saveAsTemplate && templateName.trim() && profile?.id) {
+                await matchService.saveMatchTemplate(profile.id, templateName.trim(), {
+                    match_name: matchDetails.match_name,
+                    location: matchDetails.location,
+                    overs_per_player: oversPerPlayer,
+                    player_ids: selectedPlayers.map(p => p.id),
+                    player_names: selectedPlayers.map(p => p.full_name),
+                });
+            }
+
             // Navigate to Select Bowler for the first over
             navigation.replace('SelectBowler', {
                 matchId: match.id,
@@ -177,6 +205,31 @@ const MatchSetupScreen = ({ navigation, route }) => {
                         </TouchableOpacity>
                     </View>
                 </View>
+
+                {/* Save as Template Toggle */}
+                <TouchableOpacity
+                    style={styles.saveTemplateToggle}
+                    onPress={() => setSaveAsTemplate(!saveAsTemplate)}
+                >
+                    <Ionicons
+                        name={saveAsTemplate ? "checkbox" : "square-outline"}
+                        size={24}
+                        color={saveAsTemplate ? theme.colors.primary : theme.colors.textTertiary}
+                    />
+                    <Text style={styles.saveTemplateLabel}>Save this lineup as a template</Text>
+                </TouchableOpacity>
+
+                {saveAsTemplate && (
+                    <View style={styles.templateNameInput}>
+                        <TextInput
+                            style={styles.templateTextInput}
+                            placeholder="Template name (e.g. Sunday Squad)"
+                            value={templateName}
+                            onChangeText={setTemplateName}
+                            placeholderTextColor={theme.colors.textTertiary}
+                        />
+                    </View>
+                )}
 
                 {/* Total Overs Display */}
                 <View style={styles.totalOversContainer}>
@@ -557,6 +610,36 @@ const styles = StyleSheet.create({
 
     startButton: {
         backgroundColor: '#F9A825',
+    },
+
+    // Template save styles
+    saveTemplateToggle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: theme.colors.white,
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 16,
+        gap: 12,
+    },
+
+    saveTemplateLabel: {
+        fontSize: 15,
+        color: theme.colors.dark,
+        flex: 1,
+    },
+
+    templateNameInput: {
+        backgroundColor: theme.colors.white,
+        borderRadius: 12,
+        marginBottom: 16,
+        padding: 4,
+    },
+
+    templateTextInput: {
+        padding: 14,
+        fontSize: 15,
+        color: theme.colors.dark,
     },
 });
 

@@ -15,14 +15,12 @@ import theme from '../theme';
 import matchService from '../services/matchService';
 
 const LiveScoringScreen = ({ navigation, route }) => {
-    const { matchId, overNumber, bowler: initialBowler, batsman: initialBatsman } = route.params || {};
+    const { matchId, overNumber, bowler: initialBowler, batsman: initialBatsman, batsmanOversFaced: initialOversFaced = 0 } = route.params || {};
 
     const [striker, setStriker] = useState(initialBatsman || null);
     const [bowler, setBowler] = useState(initialBowler || null);
 
     // Live Stats State
-    // We assume incoming params are "fresh", or we fetch? 
-    // ideally we should fetch fresh stats on mount
     const [stats, setStats] = useState({
         runs: 0,
         balls: 0,
@@ -35,12 +33,31 @@ const LiveScoringScreen = ({ navigation, route }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showOverComplete, setShowOverComplete] = useState(false);
 
-    // Limits
-    const OVERS_PER_BATSMAN = 2;
+    // Dynamic overs from match config
+    const [oversPerBatsman, setOversPerBatsman] = useState(2);
+    const [batsmanOversFaced, setBatsmanOversFaced] = useState(initialOversFaced);
+
+    // Bowler over stats (for current over)
+    const [bowlerOverStats, setBowlerOverStats] = useState({
+        runs: 0,
+        wickets: 0,
+        extras: 0
+    });
 
     // Target Logic
     const [isLastBatsman, setIsLastBatsman] = useState(false);
     const [targetScore, setTargetScore] = useState(null);
+
+    // Fetch match details for overs_per_player
+    useEffect(() => {
+        const fetchMatchDetails = async () => {
+            const { match, error } = await matchService.getMatchDetails(matchId);
+            if (!error && match && match.overs_per_player) {
+                setOversPerBatsman(match.overs_per_player);
+            }
+        };
+        fetchMatchDetails();
+    }, [matchId]);
 
     useEffect(() => {
         const checkMatchStatus = async () => {
@@ -50,7 +67,6 @@ const LiveScoringScreen = ({ navigation, route }) => {
             if (error || !players) return;
 
             // Check for players waiting to bat
-            // (Exclude current batsman who is 'batting' or 'on_strike')
             const waitingPlayers = players.filter(p => p.status === 'waiting');
 
             if (waitingPlayers.length === 0) {
@@ -59,11 +75,9 @@ const LiveScoringScreen = ({ navigation, route }) => {
                 // Calculate Target: Highest score among OTHERS + 1
                 const otherPlayers = players.filter(p => p.player_id !== striker?.player_id);
                 if (otherPlayers.length > 0) {
-                    // Find max runs
                     const maxRuns = Math.max(...otherPlayers.map(p => p.runs || 0));
                     setTargetScore(maxRuns + 1);
                 } else {
-                    // First player? No target.
                     setTargetScore(null);
                 }
             }
@@ -101,26 +115,26 @@ const LiveScoringScreen = ({ navigation, route }) => {
                     (runValue === 4 || runValue === 6 ? 'boundary' : 'run');
 
             // 1. Update Local Batting Stats
-            const newRuns = runValue + (isExtra ? 1 : 0); // Wide/NB gives 1 run usually
-            // NOTE: In indivual scoring, do we count wide runs for batsman? Usually NO.
-            // But we count them for the TOTAL score.
-            // For this specific 'Individual' mode request, let's keep it simple:
-            // Extras add to batsman's score? NO. Extras are extras.
-            // But for "Sunday League" simplified, maybe they do?
-            // Let's stick to standard: Runs off bat go to batsman. Extras go to extras (bowler concedes).
-
-            const batsmanRuns = isExtra ? 0 : runValue;
-            const validBall = !isExtra; // Wides/NB don't count as balls faced typically
+            const batsmanRuns = isExtra ? 0 : (isWicket ? 0 : runValue);
+            const validBall = !isExtra; // Wides/NB don't count as balls faced
+            const extraRuns = isExtra ? 1 : 0;
 
             const updatedStats = {
                 runs: stats.runs + batsmanRuns,
                 balls: stats.balls + (validBall ? 1 : 0),
-                fours: stats.fours + (runValue === 4 ? 1 : 0),
-                sixes: stats.sixes + (runValue === 6 ? 1 : 0),
+                fours: stats.fours + (runValue === 4 && !isWicket ? 1 : 0),
+                sixes: stats.sixes + (runValue === 6 && !isWicket ? 1 : 0),
                 isOut: isWicket
             };
 
             setStats(updatedStats);
+
+            // Update bowler over stats (local tracking)
+            setBowlerOverStats(prev => ({
+                runs: prev.runs + batsmanRuns + extraRuns,
+                wickets: prev.wickets + (isWicket ? 1 : 0),
+                extras: prev.extras + extraRuns
+            }));
 
             // 2. Add to Over History
             const newBall = {
@@ -154,19 +168,24 @@ const LiveScoringScreen = ({ navigation, route }) => {
                 return; // Stop processing, match over
             }
 
-            // 4. Update DB - Bowling (Simplified)
-            // Need to fetch current bowler stats first to increment? 
-            // For now just fire-and-forget logic if we had increment capability
-            // Or we just track local overs and push?
-            // Let's skip heavy bowler updates for this pass to keep it fast, 
-            // or just log the ball if we had a ball-by-ball table.
+            // 4. If wicket, credit to bowler immediately
+            if (isWicket && bowler) {
+                await matchService.addWicketToBowler(matchId, bowler.player_id, bowler.player_name);
+            }
 
             // 5. Check Game Flow
             if (isWicket) {
                 // Batsman OUT -> End Innings
+                // Save bowler's over stats before ending
+                if (bowler) {
+                    await matchService.saveBowlerOverStats(matchId, bowler.player_id, bowler.player_name, {
+                        runs: bowlerOverStats.runs + batsmanRuns + extraRuns,
+                        wickets: 1,
+                        extras: bowlerOverStats.extras + extraRuns
+                    });
+                }
                 setTimeout(() => {
                     if (isLastBatsman) {
-                        // Last man out -> Match Over
                         navigation.navigate('MatchSummary', { matchId });
                     } else {
                         finishInnings(updatedStats);
@@ -193,14 +212,19 @@ const LiveScoringScreen = ({ navigation, route }) => {
         }
     };
 
-    const handleOverComplete = (currentStats) => {
-        // Check if Max Overs reached
-        // Calculate total overs bowled to this batsman?
-        // Current overNumber passed from SelectBowler.
-        // Assuming 1st over is overNumber=1.
+    const handleOverComplete = async (currentStats) => {
+        // Save bowler's over stats to DB
+        if (bowler) {
+            await matchService.saveBowlerOverStats(matchId, bowler.player_id, bowler.player_name, bowlerOverStats);
+        }
 
-        // If "Individual" mode usually implies fixed overs per player (e.g. 2).
-        if (overNumber >= OVERS_PER_BATSMAN) {
+        // Increment batsman's overs faced
+        const newOversFaced = batsmanOversFaced + 1;
+        setBatsmanOversFaced(newOversFaced);
+        await matchService.updateBatsmanOversFaced(matchId, striker.player_id, newOversFaced);
+
+        // Check if batsman has completed their overs
+        if (newOversFaced >= oversPerBatsman) {
             if (isLastBatsman) {
                 // Last man finished overs -> Match Over
                 navigation.navigate('MatchSummary', { matchId });
@@ -232,15 +256,15 @@ const LiveScoringScreen = ({ navigation, route }) => {
 
     const startNextOver = () => {
         setShowOverComplete(false);
-        // Navigate back to Select Bowler for the next over
-        // Pass current batsman details back so we resume with correct stats?
-        // Actually SelectBowler usually just picks bowler. 
-        // We need to persist the batsman's state? 
-        // The DB has the state! 'batting' status.
-        // So SelectBowler will refetch and see this player is still batting.
+        // Reset local bowler over stats for next over
+        setBowlerOverStats({ runs: 0, wickets: 0, extras: 0 });
+        // Navigate to Select Bowler for next over
+        // Pass batsman's updated overs faced so next over knows
         navigation.navigate('SelectBowler', {
             matchId,
-            overNumber: overNumber + 1
+            overNumber: overNumber + 1,
+            batsmanOversFaced: batsmanOversFaced,
+            lastBowlerId: bowler?.player_id
         });
     };
 
@@ -301,7 +325,7 @@ const LiveScoringScreen = ({ navigation, route }) => {
                     )}
 
                     <Text style={styles.oversRemaining}>
-                        {OVERS_PER_BATSMAN - overNumber + 1} overs remaining
+                        {Math.max(0, oversPerBatsman - batsmanOversFaced - 1)} overs remaining
                     </Text>
                 </View>
 

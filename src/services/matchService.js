@@ -410,6 +410,217 @@ const matchService = {
             return { matches: [], error: error.message };
         }
     },
+
+    /**
+     * Get match details including overs_per_player
+     */
+    async getMatchDetails(matchId) {
+        try {
+            const { data, error } = await supabase
+                .from('matches')
+                .select('*')
+                .eq('id', matchId)
+                .single();
+
+            if (error) throw error;
+            return { match: data, error: null };
+        } catch (error) {
+            console.error('Get match details error:', error);
+            return { match: null, error: error.message };
+        }
+    },
+
+    /**
+     * Save or update bowler stats for a specific over
+     * Tracks: overs bowled, runs conceded, wickets taken
+     */
+    async saveBowlerOverStats(matchId, playerId, playerName, overStats) {
+        try {
+            // Check if bowler already exists in match_bowlers
+            const { data: existing } = await supabase
+                .from('match_bowlers')
+                .select('*')
+                .eq('match_id', matchId)
+                .eq('player_id', playerId)
+                .single();
+
+            let result;
+
+            if (existing) {
+                // Update existing - increment overs, add runs, add wickets
+                result = await supabase
+                    .from('match_bowlers')
+                    .update({
+                        overs: (existing.overs || 0) + 1,
+                        runs_conceded: (existing.runs_conceded || 0) + (overStats.runs || 0),
+                        wickets: (existing.wickets || 0) + (overStats.wickets || 0),
+                    })
+                    .eq('id', existing.id)
+                    .select()
+                    .single();
+            } else {
+                // Insert new bowler record
+                result = await supabase
+                    .from('match_bowlers')
+                    .insert([{
+                        match_id: matchId,
+                        player_id: playerId,
+                        player_name: playerName,
+                        overs: 1,
+                        runs_conceded: overStats.runs || 0,
+                        wickets: overStats.wickets || 0,
+                    }])
+                    .select()
+                    .single();
+            }
+
+            if (result.error) throw result.error;
+            return { bowler: result.data, error: null };
+        } catch (error) {
+            console.error('Save bowler over stats error:', error);
+            return { bowler: null, error: error.message };
+        }
+    },
+
+    /**
+     * Increment wicket count for a bowler (called when wicket falls)
+     */
+    async addWicketToBowler(matchId, playerId, playerName) {
+        try {
+            // Check if bowler exists
+            const { data: existing } = await supabase
+                .from('match_bowlers')
+                .select('*')
+                .eq('match_id', matchId)
+                .eq('player_id', playerId)
+                .single();
+
+            let result;
+
+            if (existing) {
+                result = await supabase
+                    .from('match_bowlers')
+                    .update({
+                        wickets: (existing.wickets || 0) + 1,
+                    })
+                    .eq('id', existing.id)
+                    .select()
+                    .single();
+            } else {
+                // Create new bowler entry with 1 wicket
+                result = await supabase
+                    .from('match_bowlers')
+                    .insert([{
+                        match_id: matchId,
+                        player_id: playerId,
+                        player_name: playerName,
+                        overs: 0,
+                        runs_conceded: 0,
+                        wickets: 1,
+                    }])
+                    .select()
+                    .single();
+            }
+
+            if (result.error) throw result.error;
+            return { bowler: result.data, error: null };
+        } catch (error) {
+            console.error('Add wicket to bowler error:', error);
+            return { bowler: null, error: error.message };
+        }
+    },
+
+    /**
+     * Save match as a template for reuse
+     * Silently fails if table doesn't exist
+     */
+    async saveMatchTemplate(scorerId, templateName, matchConfig) {
+        try {
+            const { data, error } = await supabase
+                .from('match_templates')
+                .insert([{
+                    scorer_id: scorerId,
+                    template_name: templateName,
+                    match_name: matchConfig.match_name,
+                    location: matchConfig.location,
+                    overs_per_player: matchConfig.overs_per_player,
+                    player_ids: matchConfig.player_ids || [],
+                    player_names: matchConfig.player_names || [],
+                }])
+                .select()
+                .single();
+
+            // Handle missing table gracefully
+            if (error) {
+                if (error.code === 'PGRST205' || error.message?.includes('Could not find')) {
+                    console.log('match_templates table not created yet - skipping save');
+                    return { template: null, error: null };
+                }
+                throw error;
+            }
+            return { template: data, error: null };
+        } catch (error) {
+            console.error('Save match template error:', error);
+            return { template: null, error: error.message };
+        }
+    },
+
+    /**
+     * Get saved match templates for a scorer
+     * Returns empty array if table doesn't exist yet
+     */
+    async getMatchTemplates(scorerId) {
+        try {
+            const { data, error } = await supabase
+                .from('match_templates')
+                .select('*')
+                .eq('scorer_id', scorerId)
+                .order('created_at', { ascending: false });
+
+            // Handle missing table gracefully
+            if (error) {
+                if (error.code === 'PGRST205' || error.message?.includes('Could not find')) {
+                    // Table doesn't exist yet - return empty
+                    console.log('match_templates table not created yet');
+                    return { templates: [], error: null };
+                }
+                throw error;
+            }
+            return { templates: data, error: null };
+        } catch (error) {
+            console.error('Get match templates error:', error);
+            return { templates: [], error: error.message };
+        }
+    },
+
+    /**
+     * Update batsman's overs faced count
+     * Silently fails if column doesn't exist
+     */
+    async updateBatsmanOversFaced(matchId, playerId, oversFaced) {
+        try {
+            const { data, error } = await supabase
+                .from('match_players')
+                .update({ overs_faced: oversFaced })
+                .eq('match_id', matchId)
+                .eq('player_id', playerId)
+                .select()
+                .single();
+
+            // Handle missing column gracefully
+            if (error) {
+                if (error.code === 'PGRST204' || error.message?.includes('Could not find')) {
+                    // Column doesn't exist - overs tracking handled locally in app
+                    return { player: null, error: null };
+                }
+                throw error;
+            }
+            return { player: data, error: null };
+        } catch (error) {
+            console.error('Update batsman overs faced error:', error);
+            return { player: null, error: error.message };
+        }
+    },
 };
 
 export default matchService;

@@ -14,8 +14,9 @@ import theme from '../theme';
 import matchService from '../services/matchService';
 
 const SelectBowlerScreen = ({ navigation, route }) => {
-    const { matchId, overNumber = 1, lastBowlerId } = route.params || {};
+    const { matchId, overNumber = 1, lastBowlerId, batsmanOversFaced = 0 } = route.params || {};
     const [players, setPlayers] = useState([]);
+    const [bowlerStats, setBowlerStats] = useState({});
     const [selectedBowlerId, setSelectedBowlerId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [currentBatsman, setCurrentBatsman] = useState(null);
@@ -54,12 +55,25 @@ const SelectBowlerScreen = ({ navigation, route }) => {
             setCurrentBatsman(batsman);
 
             // Filter out the current batsman from potential bowlers
-            // Can't bowl to yourself!
             const eligibleBowlers = batsman
                 ? allPlayers.filter(p => p.player_id !== batsman.player_id)
                 : allPlayers;
 
             setPlayers(eligibleBowlers);
+
+            // Fetch bowler stats for display
+            const { bowlers } = await matchService.getMatchBowlers(matchId);
+            if (bowlers && bowlers.length > 0) {
+                const statsMap = {};
+                bowlers.forEach(b => {
+                    statsMap[b.player_id] = {
+                        overs: b.overs || 0,
+                        runs: b.runs_conceded || 0,
+                        wickets: b.wickets || 0
+                    };
+                });
+                setBowlerStats(statsMap);
+            }
         } catch (error) {
             console.error('Error fetching match players:', error);
         } finally {
@@ -79,7 +93,8 @@ const SelectBowlerScreen = ({ navigation, route }) => {
             matchId,
             overNumber,
             bowler: selectedBowler,
-            batsman: currentBatsman, // Pass the batsman
+            batsman: currentBatsman,
+            batsmanOversFaced: batsmanOversFaced
         });
     };
 
@@ -119,6 +134,7 @@ const SelectBowlerScreen = ({ navigation, route }) => {
     const renderPlayerItem = ({ item }) => {
         const isSelected = item.player_id === selectedBowlerId;
         const isLastBowler = item.player_id === lastBowlerId;
+        const stats = bowlerStats[item.player_id];
 
         return (
             <TouchableOpacity
@@ -139,7 +155,9 @@ const SelectBowlerScreen = ({ navigation, route }) => {
                     </View>
                     <View>
                         <Text style={styles.playerName}>{item.player_name}</Text>
-                        <Text style={styles.playerRole}>{item.bowling_style || 'Right-arm Fast'}</Text>
+                        <Text style={styles.playerRole}>
+                            {stats ? `${stats.overs}ov • ${stats.wickets}w • ${stats.runs}r` : (item.bowling_style || 'Right-arm Fast')}
+                        </Text>
                     </View>
                 </View>
 
